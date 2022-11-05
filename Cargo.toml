@@ -1,0 +1,33 @@
+[package]
+name = "esp-spinlock-repro"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+
+[profile.dev]
+debug = true # Symbols are nice and they don't increase the size on Flash
+opt-level = "z"
+
+[profile.release]
+opt-level = "s"
+lto = "fat"
+
+[build-dependencies]
+anyhow = "1.0.66"
+embuild = "0.30.4"
+
+[dependencies]
+anyhow = "1.0.66"
+embassy-time = "0.1"
+esp-idf-sys = { version = "0.31.11", features = ["binstart"] }
+log = "0.4.17"
+
+[dependencies.esp-idf-hal]
+version = "0.39"
+features = ["edge-executor", "embassy-sync", "critical-section"]
+git = "https://github.com/esp-rs/esp-idf-hal"
+
+[dependencies.esp-idf-svc]
+version = "0.43"
+features = ["nightly", "experimental", "embassy-time-isr-queue"]
+git = "https://github.com/esp-rs/esp-idf-svc"
