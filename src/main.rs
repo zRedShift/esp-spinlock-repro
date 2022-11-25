@@ -1,8 +1,110 @@
 #![no_std]
 #![no_main]
 
+use core::sync::atomic::{AtomicU8, Ordering};
 use esp32s3_hal::{clock::ClockControl, pac::Peripherals, prelude::*, timer::TimerGroup, Rtc};
 use esp_backtrace as _;
+
+#[allow(clippy::declare_interior_mutable_const)]
+const EMPTY_CELL: AtomicU8 = AtomicU8::new(0);
+
+const N: usize = 8;
+const MASK: u8 = N as u8 - 1;
+
+pub struct MpMcQueue {
+    buffer: [AtomicU8; N],
+    dequeue_pos: AtomicU8,
+    enqueue_pos: AtomicU8,
+}
+
+impl MpMcQueue {
+    pub const fn new() -> Self {
+        let mut cell_count = 0;
+        let mut result_cells = [EMPTY_CELL; N];
+        while cell_count != N {
+            result_cells[cell_count] = AtomicU8::new(cell_count as u8);
+            cell_count += 1;
+        }
+
+        Self {
+            buffer: result_cells,
+            dequeue_pos: AtomicU8::new(0),
+            enqueue_pos: AtomicU8::new(0),
+        }
+    }
+
+    pub fn dequeue(&self) -> bool {
+        let mut pos = self.dequeue_pos.load(Ordering::Relaxed);
+        let mut cell;
+        loop {
+            cell = &self.buffer[(pos & MASK) as usize];
+            let seq = cell.load(Ordering::Acquire);
+            match (seq as i8).wrapping_sub((pos.wrapping_add(1)) as i8) {
+                0 => {
+                    if self
+                        .dequeue_pos
+                        .compare_exchange_weak(
+                            pos,
+                            pos.wrapping_add(1),
+                            Ordering::Relaxed,
+                            Ordering::Relaxed,
+                        )
+                        .is_ok()
+                    {
+                        break;
+                    }
+                }
+                i8::MIN..=-1 => return false,
+                _ => {
+                    pos = self.dequeue_pos.load(Ordering::Relaxed);
+                }
+            }
+        }
+        cell.store(pos.wrapping_add(MASK).wrapping_add(1), Ordering::Release);
+        true
+    }
+
+    pub fn enqueue(&self) -> bool {
+        let mut pos = self.enqueue_pos.load(Ordering::Relaxed);
+        let mut cell;
+        loop {
+            cell = &self.buffer[(pos & MASK) as usize];
+            let seq = cell.load(Ordering::Acquire);
+            match (seq as i8).wrapping_sub(pos as i8) {
+                0 => {
+                    if self
+                        .enqueue_pos
+                        .compare_exchange_weak(
+                            pos,
+                            pos.wrapping_add(1),
+                            Ordering::Relaxed,
+                            Ordering::Relaxed,
+                        )
+                        .is_ok()
+                    {
+                        break;
+                    }
+                }
+                i8::MIN..=-1 => return false,
+                _ => {
+                    pos = self.enqueue_pos.load(Ordering::Relaxed);
+                }
+            }
+        }
+        cell.store(pos.wrapping_add(1), Ordering::Release);
+        true
+    }
+}
+
+#[inline(never)]
+fn inner() {
+    let queue = MpMcQueue::new();
+    loop {
+        if !queue.enqueue() || !queue.dequeue() {
+            break;
+        }
+    }
+}
 
 #[xtensa_lx_rt::entry]
 fn main() -> ! {
@@ -21,12 +123,6 @@ fn main() -> ! {
     wdt0.disable();
     wdt1.disable();
 
-    let queue = heapless::mpmc::MpMcQueue::<(), 8>::new();
-    let mut counter = 0;
-    loop {
-        esp_println::println!("counter at {counter}");
-        queue.enqueue(()).unwrap();
-        queue.dequeue().unwrap();
-        counter += 1;
-    }
+    inner();
+    panic!("miscompilation")
 }
