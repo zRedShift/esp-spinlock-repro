@@ -5,29 +5,27 @@ edition = "2021"
 resolver = "2"
 
 [profile.dev]
-debug = true # Symbols are nice and they don't increase the size on Flash
-opt-level = "z"
+opt-level = 3
+debug = true
+lto = "thin"
+debug-assertions = false
+overflow-checks = false
+incremental = false
+codegen-units = 16
+
 
 [profile.release]
-opt-level = "s"
+opt-level = 3
+debug = true
 lto = "fat"
-
-[build-dependencies]
-anyhow = "1.0.66"
-embuild = "0.30.4"
+debug-assertions = false
+overflow-checks = false
+incremental = false
+codegen-units = 16
 
 [dependencies]
-anyhow = "1.0.66"
-embassy-time = "0.1"
-esp-idf-sys = { version = "0.31.11", features = ["binstart"] }
-log = "0.4.17"
-
-[dependencies.esp-idf-hal]
-version = "0.39"
-features = ["edge-executor", "embassy-sync", "critical-section"]
-git = "https://github.com/esp-rs/esp-idf-hal"
-
-[dependencies.esp-idf-svc]
-version = "0.43"
-features = ["nightly", "experimental", "embassy-time-isr-queue"]
-git = "https://github.com/esp-rs/esp-idf-svc"
+esp-backtrace = { version = "0.3.0", features = ["esp32s3", "panic-handler", "exception-handler", "print-uart"] }
+esp-println = { version = "0.3.1", features = ["esp32s3", "log"] }
+esp32s3-hal = "0.3.0"
+heapless = { version = "0.7.16", default-features = false, features = ["cas"] }
+xtensa-lx-rt = { version = "0.13.0", features = ["esp32s3"] }

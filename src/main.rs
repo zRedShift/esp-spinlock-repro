@@ -1,21 +1,32 @@
-fn main() -> anyhow::Result<()> {
-    esp_idf_sys::link_patches();
-    esp_idf_hal::task::critical_section::link();
-    esp_idf_svc::timer::embassy_time::driver::link();
-    esp_idf_svc::timer::embassy_time::queue::link();
-    esp_idf_svc::log::EspLogger::initialize_default();
+#![no_std]
+#![no_main]
 
-    let executor = esp_idf_hal::task::executor::EspExecutor::<4, _>::new();
-    let task = executor.spawn_local(async {
-        let mut counter = 0;
-        loop {
-            log::info!("counter at {counter}");
-            embassy_time::Timer::after(embassy_time::Duration::from_millis(10)).await;
-            counter += 1;
-        }
-    })?;
+use esp32s3_hal::{clock::ClockControl, pac::Peripherals, prelude::*, timer::TimerGroup, Rtc};
+use esp_backtrace as _;
 
-    executor.run_tasks(|| true, [task]);
+#[xtensa_lx_rt::entry]
+fn main() -> ! {
+    let peripherals = Peripherals::take().unwrap();
+    let system = peripherals.SYSTEM.split();
+    let clocks = ClockControl::boot_defaults(system.clock_control).freeze();
 
-    Ok(())
+    // Disable the RTC and TIMG watchdog timers
+    let mut rtc = Rtc::new(peripherals.RTC_CNTL);
+    let timer_group0 = TimerGroup::new(peripherals.TIMG0, &clocks);
+    let mut wdt0 = timer_group0.wdt;
+    let timer_group1 = TimerGroup::new(peripherals.TIMG1, &clocks);
+    let mut wdt1 = timer_group1.wdt;
+
+    rtc.rwdt.disable();
+    wdt0.disable();
+    wdt1.disable();
+
+    let queue = heapless::mpmc::MpMcQueue::<(), 8>::new();
+    let mut counter = 0;
+    loop {
+        esp_println::println!("counter at {counter}");
+        queue.enqueue(()).unwrap();
+        queue.dequeue().unwrap();
+        counter += 1;
+    }
 }
